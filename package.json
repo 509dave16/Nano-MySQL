@@ -1,0 +1,29 @@
+{
+  "name": "Nano-Adapter-Template",
+  "version": "1.0.0",
+  "description": "Blank adapter for nanoSQL",
+  "main": "index.js",
+  "typings": "index.d.ts",
+  "scripts": {
+    "build": "npm run test && rm -rf *.d.ts && tsc && mv source.js index.js && mv source.d.ts index.d.ts",
+    "test": "tsc test.ts && node test.js && rm -rf *.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ClickSimply/Nano-Adapter-Template.git"
+  },
+  "keywords": [],
+  "author": "Scott Lott <Scott@ClickSimply.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ClickSimply/Nano-Adapter-Template/issues"
+  },
+  "homepage": "https://nanosql.io",
+  "dependencies": {
+    "nano-sql": "^1.3.3"
+  },
+  "devDependencies": {
+    "NanoSQL-Adapter-Test": "git+https://github.com/ClickSimply/NanoSQL-Adapter-Test.git",
+    "typescript": "^2.6.2"
+  }
+}
