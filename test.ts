@@ -1,4 +1,9 @@
 import { TestAdapter } from "NanoSQL-Adapter-Test";
-import { SampleAdapter } from "./source";
+import { MySQLAdapter } from "./source";
 
-new TestAdapter(SampleAdapter, []);
+new TestAdapter(MySQLAdapter, [{
+    host: "localhost",
+    database: "test",
+    user: "root",
+    password: ""
+}]);

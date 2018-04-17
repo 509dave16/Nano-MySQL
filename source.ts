@@ -1,171 +1,294 @@
 import { NanoSQLStorageAdapter, DBKey, DBRow, _NanoSQLStorage } from "nano-sql/lib/database/storage";
-import { DataModel, NanoSQLInstance } from "nano-sql/lib/index";
-import { StdObject, hash, fastALL, fastCHAIN, deepFreeze, uuid, timeid, _assign, generateID, sortedInsert } from "nano-sql/lib/utilities";
+import { DataModel } from "nano-sql/lib/index";
+import { setFast } from "lie-ts";
+import { StdObject, hash, fastALL, fastCHAIN, deepFreeze, uuid, timeid, _assign, generateID, sortedInsert, isAndroid } from "nano-sql/lib/utilities";
+import { DatabaseIndex } from "nano-sql/lib/database/db-idx";
+import * as mysql from "mysql";
+
+/**
+ * MySQL Unoffocial Benchmarks You Should Ignore:
+ * Writes: ~2/ms
+ * Reads: ~100/ms
+ * IndexRead: ~166/ms
+ */
 
 
-export class SampleAdapter implements NanoSQLStorageAdapter {
+export interface mySQLConnection {
+    query: (sql: string, callback: (err: Error, results: any, fields: any) => void) => void;
+    release: () => void;
+}
+
+export class SQLResult {
+
+    public rowData: any[];
+
+    public rows: {
+        item: (idx: number) => any
+        length: number;
+    };
+
+    constructor(rows: any[]) {
+        this.rowData = rows;
+        this.rows = {
+            item: (idx: number) => {
+                return this.rowData[idx];
+            },
+            length: this.rowData.length
+        };
+    }
+}
+
+/**
+ * Handles WebSQL persistent storage
+ *
+ * @export
+ * @class _SyncStore
+ * @implements {NanoSQLStorageAdapter}
+ */
+export class MySQLAdapter implements NanoSQLStorageAdapter {
+
+
+    private _pkKey: {
+        [tableName: string]: string;
+    };
+
+    private _pkType: {
+        [tableName: string]: string;
+    };
+
+    private _doAI: {
+        [tableName: string]: boolean;
+    }
+
 
     private _id: string;
 
-    constructor() {
-
+    private _db: {
+        getConnection: (callback: (err: Error, connection: mySQLConnection) => void) => void;
+        end: (callback?: (err?: Error) => void) => void;
     }
 
-    /**
-     * The ID of the database provided by nanoSQL
-     * 
-     * @param {string} id 
-     * @memberof SampleAdapter
-     */
+    private _filename: string;
+    private _mode: any;
+
+    constructor(public connectArgs: {
+        connectionLimit?: number;
+        host?: string;
+        port?: number;
+        socketPath?: string;
+        user: string;
+        password: string;
+        database: string;
+        charset?: string;
+        timezone?: string;
+        connectTimeout?: number;
+        stringifyObjects?: boolean;
+        insecureAuth?: boolean;
+        debug?: boolean;
+        trace?: boolean;
+        multipleStatements?: boolean;
+        ssl?: { [key: string]: any }
+    }) {
+        this._pkKey = {};
+        this._pkType = {};
+        this._doAI = {};
+    }
+
     public setID(id: string) {
         this._id = id;
     }
 
-    /**
-     * Async function to connect the database to it's backend.
-     * 
-     * Call complete() once a succesfull connection has been made, otherwise throw an error
-     * 
-     * @param {() => void} complete 
-     * @memberof SampleAdapter
-     */
     public connect(complete: () => void) {
 
+        this._db = mysql.createPool({
+            connectionLimit: 20,
+            ...this.connectArgs
+        });
+
+        this._db.getConnection((err, connection) => {
+            if (err) {
+                throw err;
+            }
+            connection.release();
+            fastALL(Object.keys(this._pkKey), (table, i, nextKey) => {
+                const stmt = this._doAI[table] ?
+                    `CREATE TABLE IF NOT EXISTS ${this._chkTable(table)} (id Integer AUTO_INCREMENT PRIMARY KEY , data BLOB)` :
+                    `CREATE TABLE IF NOT EXISTS ${this._chkTable(table)} (id VARCHAR(36) PRIMARY KEY, data BLOB)`;
+                this._sql(true, stmt, [], () => {
+                    nextKey();
+                });
+            }).then(() => {
+                complete();
+            });
+        });
     }
 
     /**
-     * Called for every table the database needs to use.
-     * Don't do any async work here, just save any details needed to perform the necessary async work in the connect() method.
-     * 
-     * @param {string} tableName 
-     * @param {DataModel[]} dataModels 
-     * @memberof SampleAdapter
+     * Table names can't be escaped easily in the queries.
+     * This function gaurantees any provided table is a valid table name being used by the system.
+     *
+     * @private
+     * @param {string} table
+     * @returns {string}
+     * @memberof _WebSQLStore
      */
+    private _chkTable(table: string): string {
+        if (Object.keys(this._pkType).indexOf(table) === -1) {
+            throw Error("No table " + table + " found!");
+        } else {
+            return "DB" + "_" + this._id + "_" + table;
+        }
+    }
+
     public makeTable(tableName: string, dataModels: DataModel[]): void {
 
+        dataModels.forEach((d) => {
+            if (d.props && d.props.indexOf("pk") > -1) {
+                this._pkType[tableName] = d.type;
+                this._pkKey[tableName] = d.key;
+                if (d.type === "int" && d.props.indexOf("ai") !== -1) {
+                    this._doAI[tableName] = true;
+                }
+            }
+        });
     }
 
-    /**
-     * When a write command is sent to the database, this is called.  A few different situations need to be handled.
-     * 1. Primary key is provided but row doesn't exist (new row with provided primary key)
-     * 2. Primary key is provided and row does exist (replace existing row)
-     * 3. Primary key isn't provided and row doesn't exist.
-     * 
-     * All writes are a full replace of the whole row, partial updates will not be passed here.
-     * 
-     * @param {string} table 
-     * @param {(DBKey | null)} pk Primary Key
-     * @param {DBRow} newData 
-     * @param {(row: DBRow) => void} complete 
-     * @param {boolean} skipReadBeforeWrite 
-     * @memberof SampleAdapter
-     */
-    public write(table: string, pk: DBKey | null, newData: DBRow, complete: (row: DBRow) => void): void {
+    public _sql(allowWrite: boolean, sql: string, args: any[], complete: (rows: SQLResult) => void, getPK?: string): void {
+        this._db.getConnection((err, db) => {
+            if (err) { throw err };
+            db.query(mysql.format(sql, args), (err, rows, fields) => {
+                if (err) { throw err };
+                if (getPK) {
+                    db.query(`SELECT LAST_INSERT_ID() FROM ${this._chkTable(getPK)}`, (err, result, fields) => {
+                        db.release();
+                        complete(result);
+                    });
+                } else {
+                    db.release();
+                    complete(new SQLResult(rows || []));
+                }
+
+            });
+        });
+    }
+
+    public write(table: string, pk: DBKey | null, data: DBRow, complete: (finalRow: DBRow) => void, error?: (err: Error) => void): void {
+
+        if (!this._doAI[table]) {
+            pk = pk || generateID(this._pkType[table], 0) as DBKey;
+
+            if (!pk) {
+                throw new Error("Can't add a row without a primary key!");
+            }
+        }
+
+
+        const r = {
+            ...data,
+            [this._pkKey[table]]: pk
+        }
+
+        if (this._doAI[table] && !pk) {
+            this._sql(true, `INSERT into ${this._chkTable(table)} (data) VALUES (?)`, [JSON.stringify(r)], (result) => {
+                const r2 = {
+                    ...r,
+                    [this._pkKey[table]]: result[0]['LAST_INSERT_ID()']
+                }
+                this._sql(true, `UPDATE ${this._chkTable(table)} SET data = ? WHERE id = ?`, [JSON.stringify(r2), result[0]['LAST_INSERT_ID()']], () => {
+                    complete(r2);
+                });
+            }, table);
+        } else {
+            const json = JSON.stringify(r);
+            this._sql(true, `INSERT into ${this._chkTable(table)} (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data=?`, [pk, json, json], (result) => {
+                complete(r);
+            });
+        }
+
+
 
     }
 
-    /**
-     * A table and primary key will be provided, call complete when the row is gone from the database
-     * 
-     * @param {string} table 
-     * @param {DBKey} pk Primary Key
-     * @param {() => void} complete 
-     * @memberof SampleAdapter
-     */
     public delete(table: string, pk: DBKey, complete: () => void): void {
-
+        this._sql(true, `DELETE FROM ${this._chkTable(table)} WHERE id = ?`, [pk], () => {
+            complete();
+        });
     }
 
-    /**
-     * OPTIONAL METHOD
-     * An array of primary keys is provided, return all the rows with those primary keys.
-     * 
-     * @param {string} table 
-     * @param {DBKey[]} pks 
-     * @param {(rows: any[]) => void} callback 
-     * @memberof SampleAdapter
-     */
-    public batchRead(table: string, pks: DBKey[], callback: (rows: any[]) => void) {
 
-    }
-
-    /**
-     * Return a single row given it's primary key
-     * 
-     * @param {string} table 
-     * @param {DBKey} pk 
-     * @param {(row: DBRow) => void} callback 
-     * @memberof SampleAdapter
-     */
     public read(table: string, pk: DBKey, callback: (row: DBRow) => void): void {
-
+        this._sql(false, `SELECT data FROM ${this._chkTable(table)} WHERE id = ?`, [pk], (result) => {
+            if (result.rows.length) {
+                callback(JSON.parse(result.rows.item(0).data));
+            } else {
+                callback(undefined as any);
+            }
+        });
     }
 
-    /**
-     * This method is used to get a section of rows or all rows in a table.
-     * For every row requested rowCallback() should be called, then nextRow() will be called by nanoSQL when it's ready for the next row.
-     * 
-     * No rows are passed into the complete() function, that's only called after the last row has been passed into rowCallback()
-     * 
-     * The method should support the following situations:
-     * 1. from, to, and usePK are all undefined: return whole table.
-     * 2. from and to are provided, usePK is false: return rows inside a given number range, for example return the 10th row to the 20th row (assuming primary keys are sorted).
-     * 3. from and to are provided, usePK is true: return rows inside a range of primary keys
-     * 
-     * 
-     * @param {string} table 
-     * @param {(row: DBRow, idx: number, nextRow: () => void) => void} rowCallback 
-     * @param {() => void} complete 
-     * @param {*} [from] 
-     * @param {*} [to] 
-     * @param {boolean} [usePK] 
-     * @memberof SampleAdapter
-     */
     public rangeRead(table: string, rowCallback: (row: DBRow, idx: number, nextRow: () => void) => void, complete: () => void, from?: any, to?: any, usePK?: boolean): void {
 
+        const usefulValues = [typeof from, typeof to].indexOf("undefined") === -1;
+
+        let stmnt = "SELECT data from " + this._chkTable(table);
+
+        let args: any[] = [];
+        if (usefulValues && usePK) {
+            args = [from, to];
+            stmnt += ` WHERE id BETWEEN ? AND ?`
+        }
+
+        stmnt += " ORDER BY id ASC";
+
+        if (usefulValues && !usePK) {
+            args = [(to - from) + 1, from];
+            stmnt += ` LIMIT ? OFFSET ?`
+        }
+
+        this._sql(false, stmnt, args, (result) => {
+            let i = 0;
+            const getRow = () => {
+                if (result.rows.length > i) {
+                    rowCallback(JSON.parse(result.rows.item(i).data), i, () => {
+                        i++;
+                        i % 500 === 0 ? setFast(getRow) : getRow(); // handle maximum call stack error
+                    });
+                } else {
+                    complete();
+                }
+            };
+            getRow();
+        });
     }
 
-    /**
-     * Delete every row in the given table
-     * 
-     * @param {string} table 
-     * @param {() => void} callback 
-     * @memberof SampleAdapter
-     */
     public drop(table: string, callback: () => void): void {
-
+        this._sql(true, `DELETE FROM ${this._chkTable(table)}`, [], (rows) => {
+            callback();
+        });
     }
 
-    /**
-     * Get a copy of the database index or just the length of the database index.
-     * 
-     * @param {string} table 
-     * @param {boolean} getLength 
-     * @param {(index) => void} complete 
-     * @memberof SampleAdapter
-     */
     public getIndex(table: string, getLength: boolean, complete: (index) => void): void {
-
+        if (getLength) {
+            this._sql(false, `SELECT COUNT(*) AS length FROM ${this._chkTable(table)}`, [], (result) => {
+                complete(result.rows.item(0).length);
+            });
+        } else {
+            this._sql(false, `SELECT id FROM ${this._chkTable(table)} ORDER BY id ASC`, [], (result) => {
+                let idx: any[] = [];
+                let i = result.rows.length;
+                while (i--) {
+                    idx.unshift(result.rows.item(i).id);
+                }
+                complete(idx);
+            });
+        }
     }
 
-    /**
-     * Used only by the testing system, completely remove all tables and everything.
-     * 
-     * @param {() => void} complete 
-     * @memberof SampleAdapter
-     */
     public destroy(complete: () => void) {
-
-    }
-
-    /**
-     * OPTIONAL METHOD
-     * Provides the nano-sql instance this adapter is attached to.
-     * 
-     * @param {NanoSQLInstance} nsql 
-     * @memberof SampleAdapter
-     */
-    public setNSQL(nsql: NanoSQLInstance) {
-
+        fastALL(Object.keys(this._pkKey), (table, i, done) => {
+            this._sql(true, "DROP TABLE " + this._chkTable(table), [], () => {
+                done();
+            });
+        }).then(complete);
     }
 }
