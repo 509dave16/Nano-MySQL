@@ -15,7 +15,7 @@ npm i --save nano-mysql
 ## Usage
 ```ts
 import { nSQL } from "nano-sql";
-import { MySQLAdapter } from "nano-sqlite";
+import { MySQLAdapter } from "nano-mysql";
 
 nSQL("table")
 .model([...])

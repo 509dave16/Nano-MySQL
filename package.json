@@ -1,6 +1,6 @@
 {
   "name": "nano-mysql",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MySQL Adapter for NanoSQL",
   "main": "index.js",
   "typings": "index.d.ts",
