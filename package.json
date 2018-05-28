@@ -1,11 +1,11 @@
 {
   "name": "nano-mysql",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "MySQL Adapter for NanoSQL",
   "main": "index.js",
   "typings": "index.d.ts",
   "scripts": {
-    "build": "npm run test && rm -rf *.d.ts && tsc && mv source.js index.js && mv source.d.ts index.d.ts",
+    "build": "tsc && mv source.js index.js && mv source.d.ts index.d.ts",
     "test": "tsc test.ts && node test.js && rm -rf *.js"
   },
   "repository": {
@@ -23,7 +23,7 @@
     "@types/mysql": "^2.15.4",
     "@types/redis": "^2.8.6",
     "mysql": "^2.15.0",
-    "nano-sql": "^1.4.7",
+    "nano-sql": "^1.6.3",
     "redis": "^2.8.0"
   },
   "devDependencies": {

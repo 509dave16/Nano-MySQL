@@ -1,18 +1,75 @@
 import { NanoSQLStorageAdapter, DBKey, DBRow } from "nano-sql/lib/database/storage";
-import { DataModel, NanoSQLInstance } from "nano-sql/lib/index";
-export declare class SampleAdapter implements NanoSQLStorageAdapter {
+import { DataModel } from "nano-sql/lib/index";
+export interface mySQLConnection {
+    query: (sql: string, callback: (err: Error, results: any, fields: any) => void) => void;
+    release: () => void;
+}
+export declare class SQLResult {
+    rowData: any[];
+    rows: {
+        item: (idx: number) => any;
+        length: number;
+    };
+    constructor(rows: any[]);
+}
+export declare class MySQLAdapter implements NanoSQLStorageAdapter {
+    connectArgs: {
+        connectionLimit?: number;
+        host?: string;
+        port?: number;
+        socketPath?: string;
+        user: string;
+        password: string;
+        database: string;
+        charset?: string;
+        timezone?: string;
+        connectTimeout?: number;
+        stringifyObjects?: boolean;
+        insecureAuth?: boolean;
+        debug?: boolean;
+        trace?: boolean;
+        multipleStatements?: boolean;
+        ssl?: {
+            [key: string]: any;
+        };
+    };
+    private _pkKey;
+    private _pkType;
+    private _doAI;
     private _id;
-    constructor();
+    private _db;
+    private _filename;
+    private _mode;
+    constructor(connectArgs: {
+        connectionLimit?: number;
+        host?: string;
+        port?: number;
+        socketPath?: string;
+        user: string;
+        password: string;
+        database: string;
+        charset?: string;
+        timezone?: string;
+        connectTimeout?: number;
+        stringifyObjects?: boolean;
+        insecureAuth?: boolean;
+        debug?: boolean;
+        trace?: boolean;
+        multipleStatements?: boolean;
+        ssl?: {
+            [key: string]: any;
+        };
+    });
     setID(id: string): void;
     connect(complete: () => void): void;
+    private _chkTable(table);
     makeTable(tableName: string, dataModels: DataModel[]): void;
-    write(table: string, pk: DBKey | null, newData: DBRow, complete: (row: DBRow) => void): void;
+    _sql(allowWrite: boolean, sql: string, args: any[], complete: (rows: SQLResult) => void, getPK?: string): void;
+    write(table: string, pk: DBKey | null, data: DBRow, complete: (finalRow: DBRow) => void, error?: (err: Error) => void): void;
     delete(table: string, pk: DBKey, complete: () => void): void;
-    batchRead(table: string, pks: DBKey[], callback: (rows: any[]) => void): void;
     read(table: string, pk: DBKey, callback: (row: DBRow) => void): void;
     rangeRead(table: string, rowCallback: (row: DBRow, idx: number, nextRow: () => void) => void, complete: () => void, from?: any, to?: any, usePK?: boolean): void;
     drop(table: string, callback: () => void): void;
     getIndex(table: string, getLength: boolean, complete: (index) => void): void;
     destroy(complete: () => void): void;
-    setNSQL(nsql: NanoSQLInstance): void;
 }

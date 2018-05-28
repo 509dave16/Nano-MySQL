@@ -1,7 +1,7 @@
 import { NanoSQLStorageAdapter, DBKey, DBRow, _NanoSQLStorage } from "nano-sql/lib/database/storage";
 import { DataModel } from "nano-sql/lib/index";
 import { setFast } from "lie-ts";
-import { StdObject, hash, fastALL, fastCHAIN, deepFreeze, uuid, timeid, _assign, generateID, sortedInsert, isAndroid } from "nano-sql/lib/utilities";
+import { StdObject, hash, fastALL, fastCHAIN, deepFreeze, uuid, timeid, _assign, generateID, intersect, isAndroid } from "nano-sql/lib/utilities";
 import { DatabaseIndex } from "nano-sql/lib/database/db-idx";
 import * as mysql from "mysql";
 
@@ -143,10 +143,10 @@ export class MySQLAdapter implements NanoSQLStorageAdapter {
     public makeTable(tableName: string, dataModels: DataModel[]): void {
 
         dataModels.forEach((d) => {
-            if (d.props && d.props.indexOf("pk") > -1) {
+            if (d.props && intersect(["pk", "pk()"], d.props)) {
                 this._pkType[tableName] = d.type;
                 this._pkKey[tableName] = d.key;
-                if (d.type === "int" && d.props.indexOf("ai") !== -1) {
+                if (d.type === "int" && intersect(["ai", "ai()"], d.props)) {
                     this._doAI[tableName] = true;
                 }
             }
